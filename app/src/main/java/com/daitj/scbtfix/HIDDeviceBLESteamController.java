@@ -23,6 +23,8 @@ import android.os.*;
 import androidx.core.app.ActivityCompat;
 
 import java.lang.Runnable;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.UUID;
@@ -489,8 +491,112 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         //Log.v(TAG, "onCharacteristicChanged uuid=" + characteristic.getUuid() + " data=" + HexDump.dumpHexString(characteristic.getValue()));
 
         if (characteristic.getUuid().equals(inputCharacteristic) && !mFrozen) {
-            mManager.HIDDeviceInputReport(getId(), characteristic.getValue());
+            //mManager.HIDDeviceInputReport(getId(), characteristic.getValue());
+            handleRead(ByteBuffer.wrap(characteristic.getValue()));
         }
+    }
+
+    private static final int BLEButtonChunk1 = 0x10;
+    private static final int BLEButtonChunk2 = 0x20;
+    private static final int BLEButtonChunk3 = 0x40;
+    private static final int BLELeftJoystickChunk = 0x80;
+    private static final int BLELeftTrackpadChunk = 0x100;
+    private static final int BLERightTrackpadChunk = 0x200;
+
+    protected float leftTrigger, rightTrigger;
+    protected float rightStickX, rightStickY;
+    protected float leftStickX, leftStickY;
+    protected short buttonFlags;
+
+    protected void setButtonFlag(int buttonFlag, int data){
+        if (data != 0) {
+            // | bitwise OR
+            buttonFlags |= buttonFlag;
+        }
+        else {
+            // & bitwise AND
+            // ~ invert bitwise
+            buttonFlags &= ~buttonFlag;
+        }
+    }
+
+    protected void reportInput() {
+        //TODO: report to /dev/input using root access
+        Log.v(TAG, String.format("Input detected \n\tid:%d\n\tflags:%d\n\tleftStickX:%f\n\tleftStickY:%f\n\trightStickX:%f\n\trightStickY:%f\n\tleftTrigger:%s\n\trightTrigger:%s", getId(), buttonFlags, leftStickX, leftStickY,
+                rightStickX, rightStickY, leftTrigger, rightTrigger));
+    }
+
+    protected boolean handleRead(ByteBuffer buffer) {
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer.get(); // skip first byte
+
+        int type = Byte.toUnsignedInt(buffer.get()) | Byte.toUnsignedInt(buffer.get()) << 8;
+        if((type & BLEButtonChunk1) != 0)
+        {
+            byte[] buttons = new byte[3];
+            buffer.get(buttons);
+
+            long b = Byte.toUnsignedLong(buttons[0]) | Byte.toUnsignedLong(buttons[1]) << 8 | Byte.toUnsignedLong(buttons[2]) << 16;
+            setButtonFlag(ControllerPacket.RS_CLK_FLAG, (int) (b & 0x00000001));
+            setButtonFlag(ControllerPacket.LS_CLK_FLAG, (int) (b & 0x00000002));
+
+            setButtonFlag(ControllerPacket.RB_FLAG, (int) (b & 0x00000004));
+            setButtonFlag(ControllerPacket.LB_FLAG, (int) (b & 0x00000008));
+
+            setButtonFlag(ControllerPacket.Y_FLAG, (int) (b & 0x00000010));
+            setButtonFlag(ControllerPacket.B_FLAG, (int) (b & 0x00000020));
+            setButtonFlag(ControllerPacket.X_FLAG, (int) (b & 0x00000040));
+            setButtonFlag(ControllerPacket.A_FLAG, (int) (b & 0x00000080));
+
+            setButtonFlag(ControllerPacket.UP_FLAG, (int) (b & 0x00000100));
+            setButtonFlag(ControllerPacket.RIGHT_FLAG, (int) (b & 0x00000200));
+            setButtonFlag(ControllerPacket.LEFT_FLAG, (int) (b & 0x00000400));
+            setButtonFlag(ControllerPacket.DOWN_FLAG, (int) (b & 0x00000800));
+
+            setButtonFlag(ControllerPacket.BACK_FLAG, (int) (b & 0x00001000));
+            setButtonFlag(ControllerPacket.SPECIAL_BUTTON_FLAG, (int) (b & 0x00002000));
+            setButtonFlag(ControllerPacket.PLAY_FLAG, (int) (b & 0x00004000));
+
+            Log.v(TAG, "Buttons: "+Long.toBinaryString(b));
+        }
+        if((type & BLEButtonChunk2) != 0)
+        {
+            int left = Byte.toUnsignedInt(buffer.get());
+            int right = Byte.toUnsignedInt(buffer.get());
+            Log.v(TAG, "Triggers: "+left+" | "+right);
+            leftTrigger = left/255.0f;
+            rightTrigger = right/255.0f;
+        }
+        if((type & BLEButtonChunk3) != 0)
+        {
+            byte[] buttons = new byte[3];
+            buffer.get(buttons);
+        }
+        if((type & BLELeftJoystickChunk) != 0)
+        {
+            int x = buffer.getShort();
+            int y = ~buffer.getShort();
+            Log.v(TAG, "Joystick: "+x+" | "+y);
+            leftStickX = x / (float)Short.MAX_VALUE;
+            leftStickY = y / (float)Short.MAX_VALUE;
+        }
+        if((type & BLELeftTrackpadChunk) != 0)
+        {
+            buffer.getShort();
+            buffer.getShort();
+        }
+        if((type & BLERightTrackpadChunk) != 0)
+        {
+            int x = buffer.getShort();
+            int y = ~buffer.getShort();
+            Log.v(TAG, "Right Pad: "+x+" | "+y);
+            rightStickX = x / (float)Short.MAX_VALUE;
+            rightStickY = y / (float)Short.MAX_VALUE;
+        }
+
+        reportInput();
+
+        return true;
     }
 
     public void onDescriptorRead(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {

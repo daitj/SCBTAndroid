@@ -436,10 +436,20 @@ public class HIDDeviceManager {
     }
 
     void HIDDeviceInputReport(int deviceID, byte[] report) {
-        Log.v(TAG, "HIDDeviceInputReport deviceID: "+ deviceID);
+        /*StringBuilder reportString = new StringBuilder();
+        for (byte b : report) {
+            reportString.append(String.format("%02X ", b));
+        }
+        Log.v(TAG, "HIDDeviceInputReport deviceID: "+ deviceID + " reports: " + reportString);
+        */
     }
 
     void HIDDeviceFeatureReport(int deviceID, byte[] report) {
-
+        /*StringBuilder reportString = new StringBuilder();
+        for (byte b : report) {
+            reportString.append(String.format("%02X ", b));
+        }
+        Log.v(TAG, "HIDDeviceFeatureReport deviceID: "+ deviceID + " reports: " + reportString);
+        */
     }
 }
